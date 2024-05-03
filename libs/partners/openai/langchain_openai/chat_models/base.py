@@ -842,6 +842,7 @@ class BaseChatOpenAI(BaseChatModel):
         schema: Optional[_DictOrPydanticClass] = None,
         *,
         method: Literal["function_calling", "json_mode"] = "function_calling",
+        tools: Optional[Sequence[Union[Dict[str, Any], Type[BaseModel], Callable, BaseTool]]] = None,
         include_raw: Literal[True] = True,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, _AllReturnType]:
@@ -853,6 +854,7 @@ class BaseChatOpenAI(BaseChatModel):
         schema: Optional[_DictOrPydanticClass] = None,
         *,
         method: Literal["function_calling", "json_mode"] = "function_calling",
+        tools: Optional[Sequence[Union[Dict[str, Any], Type[BaseModel], Callable, BaseTool]]] = None,
         include_raw: Literal[False] = False,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
@@ -863,6 +865,7 @@ class BaseChatOpenAI(BaseChatModel):
         schema: Optional[_DictOrPydanticClass] = None,
         *,
         method: Literal["function_calling", "json_mode"] = "function_calling",
+        tools: Optional[Sequence[Union[Dict[str, Any], Type[BaseModel], Callable, BaseTool]]] = None,
         include_raw: bool = False,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
@@ -882,6 +885,9 @@ class BaseChatOpenAI(BaseChatModel):
                 function-calling API. If "json_mode" then OpenAI's JSON mode will be
                 used. Note that if using "json_mode" then you must include instructions
                 for formatting the output into the desired schema into the model call.
+            tools: A list of tool definitions to bind to this chat model. It will be
+                noticed by language model which tools they have. But the tools will not
+                be called.
             include_raw: If False then only the parsed structured output is returned. If
                 an error occurs during model output parsing it will be raised. If True
                 then both the raw model response (a BaseMessage) and the parsed model
@@ -925,6 +931,53 @@ class BaseChatOpenAI(BaseChatModel):
                 #     answer='They weigh the same',
                 #     justification='Both a pound of bricks and a pound of feathers weigh one pound. The weight is the same, but the volume or density of the objects may differ.'
                 # )
+        
+        Example: Function-calling, Pydantic schema (method="function_calling", tools=[tool1, ...], include_raw=False):
+             .. code-block:: python
+
+                from typing import List
+                from langchain_core.pydantic_v1 import BaseModel, Field
+                from langchain_core.tools import tool
+                from langchain_openai.chat_models.base import ChatOpenAI
+                from langchain_core.prompts import ChatPromptTemplate
+        
+                class Plan(BaseModel):
+                    '''Single plan'''
+                    step: str = Field(
+                        description="Plan description"
+                    )
+                    tool_use: bool = Field(
+                        description="True if tool is used in this step, False otherwise"
+                    )
+        
+                class PlanList(BaseModel):
+                    '''List of plans to follow in future'''
+                    plan_list: List[Plan] = Field(
+                        description="Different plans to follow, should be in sorted order"
+                    )
+        
+                @tool
+                def multiply(a: int, b: int) -> int:
+                    '''Multiply two numbers'''
+                    return a * b
+        
+                plan_llm = ChatOpenAI(model="gpt-4-turbo", temperature=0).with_structured_output(
+                    PlanList, tools=[multiply]
+                )
+        
+                plan_prompt_text = '''\
+                You are the task manager. You read conversation and create step by step plan for the given objective.
+                This plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps.
+                '''
+                plan_prompt = ChatPromptTemplate.from_messages([('system', plan_prompt_text), ('human', '{question}')])
+                plan_chain = plan_prompt | plan_llm
+        
+                result = plan_chain.invoke({'question': 'What is 4*8? And where is the capital of Korea?'})
+        
+                # -> PlanList(plan_list=[
+                #     Plan(step='Multiply 4 by 8 using the multiply function', tool_use=True),
+                #     Plan(step='Provide the capital of Korea', tool_use=False)
+                # ])
 
         Example: Function-calling, Pydantic schema (method="function_calling", include_raw=True):
             .. code-block:: python
@@ -1023,24 +1076,28 @@ class BaseChatOpenAI(BaseChatModel):
         if kwargs:
             raise ValueError(f"Received unsupported arguments {kwargs}")
         is_pydantic_schema = _is_pydantic_class(schema)
+        tools = tools or []
         if method == "function_calling":
             if schema is None:
                 raise ValueError(
                     "schema must be specified when method is 'function_calling'. "
                     "Received None."
                 )
-            llm = self.bind_tools([schema], tool_choice=True)
+            key_name = convert_to_openai_tool(schema)["function"]["name"]
+            llm = self.bind_tools([schema] + tools, tool_choice=key_name)
             if is_pydantic_schema:
                 output_parser: OutputParserLike = PydanticToolsParser(
                     tools=[schema], first_tool_only=True
                 )
             else:
-                key_name = convert_to_openai_tool(schema)["function"]["name"]
                 output_parser = JsonOutputKeyToolsParser(
                     key_name=key_name, first_tool_only=True
                 )
         elif method == "json_mode":
-            llm = self.bind(response_format={"type": "json_object"})
+            if len(tools) == 0:
+                llm = self.bind(response_format={"type": "json_object"})
+            else:
+                llm = self.bind_tools(tools=tools, tool_choice=False, response_format={"type": "json_object"})
             output_parser = (
                 PydanticOutputParser(pydantic_object=schema)
                 if is_pydantic_schema
