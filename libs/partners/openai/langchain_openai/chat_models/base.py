@@ -972,7 +972,7 @@ class BaseChatOpenAI(BaseChatModel):
                 plan_prompt = ChatPromptTemplate.from_messages([('system', plan_prompt_text), ('human', '{question}')])
                 plan_chain = plan_prompt | plan_llm
         
-                result = plan_chain.invoke({'question': 'What is 4*8? And where is the capital of Korea?'})
+                plan_chain.invoke({'question': 'What is 4*8? And where is the capital of Korea?'})
         
                 # -> PlanList(plan_list=[
                 #     Plan(step='Multiply 4 by 8 using the multiply function', tool_use=True),

@@ -1,7 +1,7 @@
 """Test OpenAI Chat API wrapper."""
 
 import json
-from typing import Any, List, Type, Union
+from typing import Any, List, Type, Union, Optional, Sequence, Dict, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +15,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.pydantic_v1 import BaseModel
+from langchain_core.tools import tool, BaseTool
 
 from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models.base import (
@@ -157,7 +158,8 @@ def test__convert_dict_to_message_tool_call() -> None:
                 name="GenerateUsername",
                 args="oops",
                 id="call_wm0JY6CdwOMZ4eTxHWUThDNz",
-                error="Function GenerateUsername arguments:\n\noops\n\nare not valid JSON. Received JSONDecodeError Expecting value: line 1 column 1 (char 0)",  # noqa: E501
+                error="Function GenerateUsername arguments:\n\noops\n\nare not valid JSON. Received JSONDecodeError Expecting value: line 1 column 1 (char 0)",
+                # noqa: E501
             ),
         ],
         tool_calls=[
@@ -209,9 +211,9 @@ def test_openai_invoke(mock_completion: dict) -> None:
 
     mock_client.create = mock_create
     with patch.object(
-        llm,
-        "client",
-        mock_client,
+            llm,
+            "client",
+            mock_client,
     ):
         res = llm.invoke("bar")
         assert res.content == "Bar Baz"
@@ -230,9 +232,9 @@ async def test_openai_ainvoke(mock_completion: dict) -> None:
 
     mock_client.create = mock_create
     with patch.object(
-        llm,
-        "async_client",
-        mock_client,
+            llm,
+            "async_client",
+            mock_client,
     ):
         res = await llm.ainvoke("bar")
         assert res.content == "Bar Baz"
@@ -262,9 +264,9 @@ def test_openai_invoke_name(mock_completion: dict) -> None:
     mock_client.create.return_value = mock_completion
 
     with patch.object(
-        llm,
-        "client",
-        mock_client,
+            llm,
+            "client",
+            mock_client,
     ):
         messages = [
             HumanMessage(content="Foo", name="Katie"),
@@ -364,3 +366,22 @@ def test_with_structured_output(schema: Union[Type[BaseModel], dict]) -> None:
     """Test passing in manually construct tool call message."""
     llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0)
     llm.with_structured_output(schema)
+
+
+@tool
+def multiply(a: int, b: int) -> int:
+    """Multiply two numbers."""
+    return a * b
+
+
+@pytest.mark.parametrize("tools", [[multiply], [], None])
+def test_with_structured_output_with_tools(
+        tools: Optional[Sequence[Union[Dict[str, Any], Type[BaseModel], Callable, BaseTool]]]) -> None:
+    llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0).with_structured_output(schema=GenerateUsername, tools=tools)
+    assert llm.to_json()['kwargs']['first'].kwargs['tools'][0]['function']['name'] == 'GenerateUsername'
+    if tools:
+        assert llm.to_json()['kwargs']['first'].kwargs['tools'][1]['function']['name'] == 'multiply'
+    else:
+        assert len(llm.to_json()['kwargs']['first'].kwargs['tools']) == 1
+    assert llm.to_json()['kwargs']['last'].tools[0].__name__ == 'GenerateUsername'
+
