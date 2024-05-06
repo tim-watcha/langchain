@@ -158,8 +158,7 @@ def test__convert_dict_to_message_tool_call() -> None:
                 name="GenerateUsername",
                 args="oops",
                 id="call_wm0JY6CdwOMZ4eTxHWUThDNz",
-                error="Function GenerateUsername arguments:\n\noops\n\nare not valid JSON. Received JSONDecodeError Expecting value: line 1 column 1 (char 0)",
-                # noqa: E501
+                error="Function GenerateUsername arguments:\n\noops\n\nare not valid JSON. Received JSONDecodeError Expecting value: line 1 column 1 (char 0)", # noqa: E501
             ),
         ],
         tool_calls=[
@@ -211,9 +210,9 @@ def test_openai_invoke(mock_completion: dict) -> None:
 
     mock_client.create = mock_create
     with patch.object(
-            llm,
-            "client",
-            mock_client,
+        llm,
+        "client",
+        mock_client,
     ):
         res = llm.invoke("bar")
         assert res.content == "Bar Baz"
@@ -232,9 +231,9 @@ async def test_openai_ainvoke(mock_completion: dict) -> None:
 
     mock_client.create = mock_create
     with patch.object(
-            llm,
-            "async_client",
-            mock_client,
+        llm,
+        "async_client",
+        mock_client,
     ):
         res = await llm.ainvoke("bar")
         assert res.content == "Bar Baz"
@@ -264,9 +263,9 @@ def test_openai_invoke_name(mock_completion: dict) -> None:
     mock_client.create.return_value = mock_completion
 
     with patch.object(
-            llm,
-            "client",
-            mock_client,
+        llm,
+        "client",
+        mock_client,
     ):
         messages = [
             HumanMessage(content="Foo", name="Katie"),
